@@ -6,6 +6,7 @@ import StepFeed from './components/StepFeed';
 import InfoBadges from './components/InfoBadges';
 import TargetSelector from './components/TargetSelector';
 import PlayerControls from './components/PlayerControls';
+import Fold3DCanvas from './components/Fold3DCanvas';
 
 const API_BASE = 'http://localhost:8000';
 
@@ -15,6 +16,7 @@ function App() {
   const [episode, setEpisode] = useState(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [foldRenderMode, setFoldRenderMode] = useState('progressive'); // 'progressive' | 'final'
   const [apiStatus, setApiStatus] = useState('connecting'); // 'connecting' | 'ok' | 'err'
   const [episodeLoading, setEpisodeLoading] = useState(false);
   const intervalRef = useRef(null);
@@ -156,6 +158,34 @@ function App() {
                 label={currentStep === 0 ? 'INITIAL' : `STEP ${currentStep}`}
                 dim={280}
                 ghostOnly={false}
+              />
+            </div>
+            <div className="canvas-wrap">
+              <div className="canvas-label-row">
+                <span className="canvas-label">3D FOLD PREVIEW</span>
+                <div className="fold-mode-toggle">
+                  <button
+                    className={`fold-mode-btn${foldRenderMode === 'progressive' ? ' active' : ''}`}
+                    onClick={() => setFoldRenderMode('progressive')}
+                    type="button"
+                  >
+                    PER CREASE
+                  </button>
+                  <button
+                    className={`fold-mode-btn${foldRenderMode === 'final' ? ' active' : ''}`}
+                    onClick={() => setFoldRenderMode('final')}
+                    type="button"
+                  >
+                    FOLD AT END
+                  </button>
+                </div>
+              </div>
+              <Fold3DCanvas
+                steps={episode ? episode.steps : []}
+                currentStep={currentStep}
+                totalSteps={totalSteps}
+                mode={foldRenderMode}
+                dim={280}
               />
             </div>
           </div>
