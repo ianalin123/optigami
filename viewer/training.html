@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OPTIGAMI — TRAINING GRID VIEWER</title>
+<style>
+  :root {
+    --bg: #0d0d1a;
+    --panel: #13131f;
+    --border: #1e1e2e;
+    --text: #e2e8f0;
+    --dim: #4a5568;
+    --cyan: #38bdf8;
+    --amber: #f59e0b;
+    --green: #22c55e;
+    --red: #ef4444;
+    --font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 11px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Header */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .logo {
+    font-size: 14px;
+    letter-spacing: 2px;
+    font-weight: 700;
+  }
+
+  .logo .accent { color: var(--cyan); }
+
+  .header-sep { width: 1px; height: 20px; background: var(--border); }
+
+  .badge {
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    letter-spacing: 1px;
+    font-weight: 600;
+  }
+
+  .badge-training { background: rgba(56,189,248,0.15); color: var(--cyan); border: 1px solid rgba(56,189,248,0.3); }
+  .badge-idle { background: rgba(74,85,104,0.2); color: var(--dim); border: 1px solid var(--border); }
+  .badge-done { background: rgba(34,197,94,0.15); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
+
+  .stat { display: flex; align-items: center; gap: 6px; color: var(--dim); }
+  .stat span { color: var(--text); }
+
+  .spacer { flex: 1; }
+
+  .ws-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--dim);
+    transition: background 0.3s;
+  }
+  .ws-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .ws-dot.error { background: var(--red); }
+
+  /* Main grid area */
+  main {
+    flex: 1;
+    padding: 16px;
+    overflow: auto;
+  }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 300px;
+    gap: 12px;
+    color: var(--dim);
+    font-size: 12px;
+    letter-spacing: 1px;
+  }
+
+  .empty-state .pulse {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--cyan);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 0.2; transform: scale(0.8); }
+    50% { opacity: 1; transform: scale(1.2); }
+  }
+
+  /* Episode Grid */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 12px;
+  }
+
+  /* Episode Cell */
+  .ep-cell {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 0.2s, transform 0.15s, opacity 0.3s;
+    animation: fadeIn 0.4s ease;
+    position: relative;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .ep-cell:hover { border-color: var(--cyan); transform: translateY(-2px); }
+  .ep-cell.running { border-color: rgba(56,189,248,0.5); }
+  .ep-cell.done-good { border-color: rgba(34,197,94,0.5); }
+  .ep-cell.done-bad { border-color: rgba(239,68,68,0.4); }
+
+  /* Fullscreen */
+  .ep-cell.fullscreen {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    border-radius: 0;
+    cursor: default;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    animation: none;
+    transform: none;
+  }
+
+  .ep-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .ep-id { font-size: 10px; color: var(--dim); letter-spacing: 1px; }
+
+  .status-badge {
+    padding: 2px 6px;
+    border-radius: 2px;
+    font-size: 9px;
+    letter-spacing: 1px;
+    font-weight: 700;
+  }
+
+  .status-running { background: rgba(56,189,248,0.2); color: var(--cyan); }
+  .status-done { background: rgba(34,197,94,0.2); color: var(--green); }
+  .status-error { background: rgba(239,68,68,0.2); color: var(--red); }
+  .status-timeout { background: rgba(245,158,11,0.2); color: var(--amber); }
+
+  .ep-canvas-wrap {
+    background: #080810;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    overflow: hidden;
+  }
+
+  .ep-cell.fullscreen .ep-canvas-wrap { height: 100%; }
+
+  .ep-canvas { display: block; }
+
+  .ep-footer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    border-top: 1px solid var(--border);
+    color: var(--dim);
+    font-size: 10px;
+  }
+
+  .ep-metric { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .ep-metric .m-label { font-size: 9px; color: var(--dim); }
+  .ep-metric .m-val { font-size: 11px; color: var(--text); font-weight: 600; }
+  .ep-metric .m-val.good { color: var(--green); }
+  .ep-metric .m-val.bad { color: var(--red); }
+
+  .ep-sep { width: 1px; height: 20px; background: var(--border); }
+
+  /* Fullscreen extras */
+  .ep-detail { display: none; }
+  .ep-cell.fullscreen .ep-detail {
+    display: block;
+    padding: 12px;
+    overflow: auto;
+    max-height: 200px;
+    border-top: 1px solid var(--border);
+  }
+
+  .back-btn {
+    display: none;
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    padding: 4px 10px;
+    background: var(--border);
+    color: var(--text);
+    border: 1px solid var(--dim);
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: var(--font);
+    font-size: 10px;
+    letter-spacing: 1px;
+  }
+
+  .ep-cell.fullscreen .back-btn { display: block; }
+  .back-btn:hover { background: var(--cyan); color: var(--bg); }
+
+  /* Fold history in fullscreen */
+  .fold-history { display: flex; flex-direction: column; gap: 4px; }
+  .fold-entry {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    color: var(--dim);
+    font-size: 10px;
+  }
+  .fold-entry .step-num { color: var(--cyan); min-width: 24px; }
+  .fold-type-badge {
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-size: 9px;
+    font-weight: 700;
+  }
+  .fold-type-valley { background: rgba(56,189,248,0.2); color: var(--cyan); }
+  .fold-type-mountain { background: rgba(245,158,11,0.2); color: var(--amber); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">OPTI<span class="accent">GAMI</span></div>
+  <div class="header-sep"></div>
+  <div id="trainBadge" class="badge badge-idle">IDLE</div>
+  <div class="header-sep"></div>
+  <div class="stat">BATCH <span id="batchNum">&#8212;</span></div>
+  <div class="stat">EPISODES <span id="epCount">0</span></div>
+  <div class="stat">AVG REWARD <span id="avgReward">&#8212;</span></div>
+  <div class="spacer"></div>
+  <div class="stat"><div id="wsDot" class="ws-dot"></div> WS</div>
+</header>
+
+<main id="main">
+  <div class="empty-state" id="emptyState">
+    <div class="pulse"></div>
+    WAITING FOR TRAINING...
+  </div>
+  <div class="grid" id="grid" style="display:none"></div>
+</main>
+
+<script>
+const state = {
+  batchId: null,
+  episodes: {},
+  fullscreenId: null,
+};
+
+const renderers = {};
+
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = proto + '//' + location.host + '/ws/training';
+  const ws = new WebSocket(url);
+  const dot = document.getElementById('wsDot');
+
+  ws.onopen = function() { dot.className = 'ws-dot connected'; };
+  ws.onclose = function() {
+    dot.className = 'ws-dot error';
+    setTimeout(connectWS, 3000);
+  };
+  ws.onerror = function() { dot.className = 'ws-dot error'; };
+
+  ws.onmessage = function(e) {
+    try { handleMessage(JSON.parse(e.data)); }
+    catch (err) { console.error('WS parse error', err); }
+  };
+}
+
+function handleMessage(msg) {
+  switch (msg.type) {
+    case 'registry':
+      state.batchId = msg.batch_id;
+      state.episodes = {};
+      Object.entries(msg.episodes || {}).forEach(function(kv) {
+        state.episodes[kv[0]] = kv[1];
+      });
+      rebuildGrid();
+      updateHeader();
+      break;
+
+    case 'batch_start':
+      state.batchId = msg.batch_id;
+      state.episodes = {};
+      setTrainingBadge('TRAINING', 'badge-training');
+      rebuildGrid();
+      updateHeader();
+      break;
+
+    case 'batch_done':
+      setTrainingBadge('BATCH DONE', 'badge-done');
+      document.getElementById('avgReward').textContent =
+        msg.avg_score != null ? msg.avg_score.toFixed(2) : '\u2014';
+      break;
+
+    case 'training_done':
+      setTrainingBadge('DONE', 'badge-done');
+      break;
+
+    case 'episode_update': {
+      const id = msg.episode_id;
+      if (!state.episodes[id]) {
+        state.episodes[id] = { status: 'running', task: msg.task_name, step: 0, metrics: {}, fold_history: [] };
+        addEpisodeCell(id);
+      }
+      const ep = state.episodes[id];
+      ep.step = msg.step;
+      ep.status = 'running';
+      if (msg.observation) {
+        ep.metrics = msg.observation.metrics || {};
+        ep.fold_history = msg.observation.fold_history || [];
+        ep.paper_state = msg.observation.paper_state || {};
+      }
+      updateEpisodeCell(id);
+      if (msg.observation && msg.observation.paper_state) {
+        renderStep(id, msg.observation.paper_state);
+      }
+      break;
+    }
+
+    case 'episode_done': {
+      const id = msg.episode_id;
+      if (!state.episodes[id]) state.episodes[id] = {};
+      const ep = state.episodes[id];
+      ep.status = msg.status || 'done';
+      ep.score = msg.score;
+      ep.final_metrics = msg.final_metrics;
+      updateEpisodeCell(id);
+      break;
+    }
+  }
+
+  document.getElementById('epCount').textContent = Object.keys(state.episodes).length;
+}
+
+function rebuildGrid() {
+  const grid = document.getElementById('grid');
+  const empty = document.getElementById('emptyState');
+
+  Object.values(renderers).forEach(function(r) { if (r.raf) cancelAnimationFrame(r.raf); });
+  Object.keys(renderers).forEach(function(k) { delete renderers[k]; });
+
+  grid.textContent = '';
+
+  if (Object.keys(state.episodes).length === 0) {
+    empty.style.display = 'flex';
+    grid.style.display = 'none';
+    return;
+  }
+
+  empty.style.display = 'none';
+  grid.style.display = 'grid';
+
+  Object.keys(state.episodes).forEach(function(id) { addEpisodeCell(id); });
+}
+
+function makeEl(tag, props) {
+  const el = document.createElement(tag);
+  if (props) {
+    if (props.className) el.className = props.className;
+    if (props.id) el.id = props.id;
+    if (props.style) Object.assign(el.style, props.style);
+    if (props.textContent !== undefined) el.textContent = props.textContent;
+    if (props.dataset) Object.assign(el.dataset, props.dataset);
+  }
+  return el;
+}
+
+function addEpisodeCell(id) {
+  const grid = document.getElementById('grid');
+  const empty = document.getElementById('emptyState');
+
+  empty.style.display = 'none';
+  grid.style.display = 'grid';
+
+  if (document.getElementById('cell-' + id)) return;
+
+  const ep = state.episodes[id];
+
+  const cell = makeEl('div', { className: 'ep-cell running', id: 'cell-' + id, dataset: { epId: id } });
+
+  // Header
+  const header = makeEl('div', { className: 'ep-header' });
+  const epIdEl = makeEl('span', { className: 'ep-id', textContent: id });
+  const badgeEl = makeEl('span', { className: 'status-badge status-running', id: 'badge-' + id, textContent: 'RUNNING' });
+  const taskEl = makeEl('span', { id: 'task-' + id, textContent: (ep.task || '').toUpperCase() });
+  taskEl.style.marginLeft = 'auto';
+  taskEl.style.color = 'var(--dim)';
+  taskEl.style.fontSize = '9px';
+  header.appendChild(epIdEl);
+  header.appendChild(badgeEl);
+  header.appendChild(taskEl);
+  cell.appendChild(header);
+
+  // Canvas wrap
+  const canvasWrap = makeEl('div', { className: 'ep-canvas-wrap' });
+  const canvas = makeEl('canvas', { className: 'ep-canvas', id: 'canvas-' + id });
+  canvas.width = 240;
+  canvas.height = 180;
+  canvasWrap.appendChild(canvas);
+  cell.appendChild(canvasWrap);
+
+  // Footer
+  const footer = makeEl('div', { className: 'ep-footer' });
+
+  function makeMetric(labelText, valId) {
+    const metric = makeEl('div', { className: 'ep-metric' });
+    const label = makeEl('span', { className: 'm-label', textContent: labelText });
+    const val = makeEl('span', { className: 'm-val', id: valId, textContent: '\u2014' });
+    metric.appendChild(label);
+    metric.appendChild(val);
+    return metric;
+  }
+
+  const stepMetric = makeMetric('STEP', 'step-' + id);
+  document.getElementById('step-' + id) || stepMetric.querySelector('[id]');
+  const stepValEl = stepMetric.querySelector('.m-val');
+  if (stepValEl) stepValEl.textContent = '0';
+
+  footer.appendChild(stepMetric);
+  footer.appendChild(makeEl('div', { className: 'ep-sep' }));
+  footer.appendChild(makeMetric('COMPACT', 'compact-' + id));
+  footer.appendChild(makeEl('div', { className: 'ep-sep' }));
+  footer.appendChild(makeMetric('REWARD', 'reward-' + id));
+  footer.appendChild(makeEl('div', { className: 'ep-sep' }));
+  footer.appendChild(makeMetric('VALID', 'valid-' + id));
+  cell.appendChild(footer);
+
+  // Detail panel
+  const detail = makeEl('div', { className: 'ep-detail', id: 'detail-' + id });
+  const foldsContainer = makeEl('div', { className: 'fold-history', id: 'folds-' + id });
+  detail.appendChild(foldsContainer);
+  cell.appendChild(detail);
+
+  // Back button
+  const backBtn = makeEl('button', { className: 'back-btn', textContent: '\u2190 GRID' });
+  backBtn.addEventListener('click', function(e) { exitFullscreen(e); });
+  cell.appendChild(backBtn);
+
+  cell.addEventListener('click', function(e) {
+    if (e.target === backBtn) return;
+    enterFullscreen(id);
+  });
+
+  grid.appendChild(cell);
+
+  renderers[id] = {
+    canvas: canvas,
+    ctx: canvas.getContext('2d'),
+    lastVerts: null,
+    lastFaces: null,
+    lastStrain: null,
+    raf: null,
+  };
+
+  drawFlatSheet(id);
+  updateEpisodeCell(id);
+}
+
+function updateEpisodeCell(id) {
+  const ep = state.episodes[id];
+  if (!ep) return;
+  const cell = document.getElementById('cell-' + id);
+  if (!cell) return;
+
+  cell.className = 'ep-cell';
+  if (ep.status === 'running') {
+    cell.classList.add('running');
+  } else if (ep.status === 'done' && (ep.score || 0) > 5) {
+    cell.classList.add('done-good');
+  } else {
+    cell.classList.add('done-bad');
+  }
+  if (id === state.fullscreenId) cell.classList.add('fullscreen');
+
+  const badge = document.getElementById('badge-' + id);
+  if (badge) {
+    const cls = ep.status === 'running' ? 'status-running'
+      : ep.status === 'done' ? 'status-done'
+      : ep.status === 'error' ? 'status-error'
+      : 'status-timeout';
+    badge.className = 'status-badge ' + cls;
+    badge.textContent = ep.status.toUpperCase();
+  }
+
+  const m = ep.metrics || {};
+  const compact = m.compactness != null ? m.compactness.toFixed(2)
+    : (ep.final_metrics && ep.final_metrics.compactness != null ? ep.final_metrics.compactness.toFixed(2) : '\u2014');
+  const score = ep.score != null ? ep.score.toFixed(1) : '\u2014';
+  const valid = m.is_valid != null ? (m.is_valid ? '\u2713' : '\u2717') : '\u2014';
+
+  const stepEl = document.getElementById('step-' + id);
+  const compEl = document.getElementById('compact-' + id);
+  const rewEl = document.getElementById('reward-' + id);
+  const valEl = document.getElementById('valid-' + id);
+
+  if (stepEl) stepEl.textContent = ep.step != null ? ep.step : 0;
+  if (compEl) {
+    compEl.textContent = compact;
+    const val = parseFloat(compact);
+    compEl.className = 'm-val' + (isNaN(val) ? '' : val > 0.5 ? ' good' : val < 0.2 ? ' bad' : '');
+  }
+  if (rewEl) {
+    rewEl.textContent = score;
+    const val = parseFloat(score);
+    rewEl.className = 'm-val' + (isNaN(val) ? '' : val > 5 ? ' good' : val < 0 ? ' bad' : '');
+  }
+  if (valEl) {
+    valEl.textContent = valid;
+    valEl.className = 'm-val' + (valid === '\u2713' ? ' good' : valid === '\u2717' ? ' bad' : '');
+  }
+
+  updateFoldHistory(id);
+}
+
+function updateFoldHistory(id) {
+  const ep = state.episodes[id];
+  const container = document.getElementById('folds-' + id);
+  if (!container || !ep) return;
+  const history = ep.fold_history || [];
+
+  while (container.firstChild) container.removeChild(container.firstChild);
+
+  if (!history.length) {
+    const noFolds = makeEl('span', { textContent: 'NO FOLDS YET' });
+    noFolds.style.color = 'var(--dim)';
+    container.appendChild(noFolds);
+    return;
+  }
+
+  history.forEach(function(f, i) {
+    const type = f.type || 'valley';
+    const cls = type === 'mountain' ? 'fold-type-mountain' : 'fold-type-valley';
+    const startCoords = (f.line && f.line.start) ? f.line.start.map(function(n) { return n.toFixed(2); }).join(',') : '\u2014';
+    const endCoords = (f.line && f.line.end) ? f.line.end.map(function(n) { return n.toFixed(2); }).join(',') : '\u2014';
+
+    const entry = makeEl('div', { className: 'fold-entry' });
+
+    const stepNum = makeEl('span', { className: 'step-num', textContent: '#' + (i + 1) });
+    const typeBadge = makeEl('span', { className: 'fold-type-badge ' + cls, textContent: type.toUpperCase() });
+    const coords = makeEl('span', { textContent: '[' + startCoords + ']\u2192[' + endCoords + ']' });
+
+    entry.appendChild(stepNum);
+    entry.appendChild(typeBadge);
+    entry.appendChild(coords);
+    container.appendChild(entry);
+  });
+}
+
+function enterFullscreen(id) {
+  // Navigate to the full React UI with this episode loaded
+  window.location.href = `/?ep=${encodeURIComponent(id)}`;
+  return;
+  if (state.fullscreenId === id) return;
+  if (state.fullscreenId) exitFullscreen();
+  state.fullscreenId = id;
+  const cell = document.getElementById('cell-' + id);
+  if (cell) {
+    cell.classList.add('fullscreen');
+    const r = renderers[id];
+    if (r) {
+      r.canvas.width = Math.min(window.innerWidth * 0.7, 800);
+      r.canvas.height = Math.min(window.innerHeight * 0.6, 600);
+      if (r.lastVerts && r.lastFaces) {
+        drawMesh(id, r.lastVerts, r.lastFaces, r.lastStrain);
+      }
+    }
+    updateFoldHistory(id);
+  }
+}
+
+function exitFullscreen(e) {
+  if (e) e.stopPropagation();
+  if (!state.fullscreenId) return;
+  const cell = document.getElementById('cell-' + state.fullscreenId);
+  if (cell) {
+    cell.classList.remove('fullscreen');
+    const r = renderers[state.fullscreenId];
+    if (r) {
+      r.canvas.width = 240;
+      r.canvas.height = 180;
+      if (r.lastVerts && r.lastFaces) {
+        drawMesh(state.fullscreenId, r.lastVerts, r.lastFaces, r.lastStrain);
+      } else {
+        drawFlatSheet(state.fullscreenId);
+      }
+    }
+  }
+  state.fullscreenId = null;
+}
+
+const LIGHT = normalize3([0.4, -0.45, 1.0]);
+const PAPER_COLOR = [250, 250, 245];
+
+function normalize3(v) {
+  const m = Math.hypot(v[0], v[1], v[2]);
+  return m < 1e-12 ? [0,0,0] : [v[0]/m, v[1]/m, v[2]/m];
+}
+
+function cross3(a, b) {
+  return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+}
+
+function dot3(a, b) { return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
+
+function sub3(a, b) { return [a[0]-b[0], a[1]-b[1], a[2]-b[2]]; }
+
+function projectVert(v, cx, cy, scale) {
+  var x = v[0] - 0.5;
+  var y = v[1] - 0.5;
+  var z = v[2] || 0;
+
+  var pitch = 0.62, yaw = -0.52;
+  var cp = Math.cos(pitch), sp = Math.sin(pitch);
+  var y1 = y*cp - z*sp;
+  var z1 = y*sp + z*cp;
+  var cy2 = Math.cos(yaw), sy = Math.sin(yaw);
+  var x2 = x*cy2 + z1*sy;
+  var z2 = -x*sy + z1*cy2;
+
+  var camDist = 2.8;
+  var persp = camDist / (camDist - z2);
+  return { x: cx + x2 * persp * scale, y: cy - y1 * persp * scale, z: z2 };
+}
+
+function strainColor(s) {
+  var t = Math.min(Math.max(s || 0, 0), 0.2) / 0.2;
+  var r = Math.round(50 + t * 200);
+  var g = Math.round(250 - t * 200);
+  var b = Math.round(245 - t * 200);
+  return 'rgb(' + r + ',' + g + ',' + b + ')';
+}
+
+function renderStep(id, paperState) {
+  if (!paperState) return;
+  var verts = paperState.vertices_coords;
+  var faces = paperState.faces_vertices;
+  var strain = paperState.strain_per_vertex;
+  if (!verts || !faces) return;
+  drawMesh(id, verts, faces, strain);
+}
+
+function drawMesh(id, verts, faces, strain) {
+  var r = renderers[id];
+  if (!r) return;
+  r.lastVerts = verts;
+  r.lastFaces = faces;
+  r.lastStrain = strain;
+
+  var canvas = r.canvas, ctx = r.ctx;
+  var w = canvas.width, h = canvas.height;
+  var scale = Math.min(w, h) * 0.8;
+  var cx = w * 0.5, cy = h * 0.52;
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#080810';
+  ctx.fillRect(0, 0, w, h);
+
+  var projected = verts.map(function(v) { return projectVert(v, cx, cy, scale); });
+
+  var tris = faces.map(function(face) {
+    var idxs = face.length > 3
+      ? [face[0], face[1], face[2], face[0], face[2], face[3] || face[2]]
+      : face;
+    var a = idxs[0], b = idxs[1], c = idxs[2];
+    var p0 = projected[a], p1 = projected[b], p2 = projected[c];
+    var avgZ = (p0.z + p1.z + p2.z) / 3;
+    var v0 = verts[a] || [0,0,0], v1 = verts[b] || [0,0,0], v2 = verts[c] || [0,0,0];
+    var norm = normalize3(cross3(sub3(v1,v0), sub3(v2,v0)));
+    var intensity = Math.abs(dot3(norm, LIGHT));
+    var avgStrain = strain ? (((strain[a]||0) + (strain[b]||0) + (strain[c]||0)) / 3) : 0;
+    return { face: [a,b,c], avgZ: avgZ, intensity: intensity, avgStrain: avgStrain };
+  });
+
+  tris.sort(function(a, b) { return a.avgZ - b.avgZ; });
+
+  for (var i = 0; i < tris.length; i++) {
+    var tri = tris[i];
+    var a = tri.face[0], b = tri.face[1], c = tri.face[2];
+    var p0 = projected[a], p1 = projected[b], p2 = projected[c];
+    if (!p0 || !p1 || !p2) continue;
+
+    var lit = Math.min(Math.max(0.3 + 0.7 * tri.intensity, 0), 1);
+    var fillColor;
+    if (tri.avgStrain > 0.005) {
+      fillColor = strainColor(tri.avgStrain);
+    } else {
+      var rv = Math.round(PAPER_COLOR[0] * lit);
+      var gv = Math.round(PAPER_COLOR[1] * lit);
+      var bv = Math.round(PAPER_COLOR[2] * lit);
+      fillColor = 'rgb(' + rv + ',' + gv + ',' + bv + ')';
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y);
+    ctx.lineTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.closePath();
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(42,42,58,0.3)';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  }
+}
+
+function drawFlatSheet(id) {
+  var flatVerts = [[0,0,0],[1,0,0],[1,1,0],[0,1,0]];
+  var flatFaces = [[0,1,2],[0,2,3]];
+  drawMesh(id, flatVerts, flatFaces, null);
+}
+
+function setTrainingBadge(label, cls) {
+  var b = document.getElementById('trainBadge');
+  b.textContent = label;
+  b.className = 'badge ' + cls;
+}
+
+function updateHeader() {
+  document.getElementById('batchNum').textContent = state.batchId != null ? state.batchId : '\u2014';
+  document.getElementById('epCount').textContent = Object.keys(state.episodes).length;
+}
+
+connectWS();
+</script>
+</body>
+</html>
