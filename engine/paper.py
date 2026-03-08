@@ -89,6 +89,10 @@ class Paper:
     material: Material = field(default_factory=lambda: get_material("paper"))
     rest_lengths: np.ndarray = field(default_factory=lambda: np.empty(0))
     original_area: float = 0.0
+    rest_positions: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
+    strain_per_vertex: np.ndarray = field(default_factory=lambda: np.empty(0))
+    energy: dict = field(default_factory=lambda: {"total": 0.0, "bar": 0.0, "facet": 0.0, "fold": 0.0})
+    fold_count: int = 0
 
     # ── constructors ────────────────────────────────────────────────
 
@@ -125,7 +129,7 @@ class Paper:
             dtype=np.float64,
         )
 
-        return Paper(
+        paper = Paper(
             vertices=verts,
             edges=edges,
             faces=faces,
@@ -135,6 +139,8 @@ class Paper:
             rest_lengths=rest_lengths,
             original_area=width * height,
         )
+        paper.rest_positions = verts.copy()
+        return paper
 
     # ── dict / prompt serialization (matches mock_env.PaperState.to_dict) ──
 
@@ -163,6 +169,33 @@ class Paper:
                 "y": float(bb[1]),
                 "z": float(bb[2]),
             },
+        }
+
+    def to_observation_dict(self) -> dict:
+        bb = self.bounding_box
+        return {
+            "vertices_coords": self.vertices.tolist(),
+            "edges_vertices": self.edges.tolist(),
+            "faces_vertices": self.faces,
+            "edges_assignment": list(self.assignments),
+            "edges_foldAngle": self.fold_angles.tolist(),
+            "num_vertices": len(self.vertices),
+            "num_edges": len(self.edges),
+            "num_faces": len(self.faces),
+            "bounding_box": bb.tolist(),
+            "num_layers": self.num_layers,
+            "material": {
+                "name": self.material.name,
+                "thickness_mm": self.material.thickness_mm,
+                "youngs_modulus_gpa": self.material.youngs_modulus_gpa,
+                "max_strain": self.material.max_strain,
+                "poisson_ratio": self.material.poissons_ratio,
+            },
+            "strain_per_vertex": self.strain_per_vertex.tolist(),
+            "energy": dict(self.energy),
+            "fold_count": self.fold_count,
+            "width": float(self.original_area ** 0.5) if self.original_area > 0 else 1.0,
+            "height": float(self.original_area ** 0.5) if self.original_area > 0 else 1.0,
         }
 
     # ── FOLD format serialization ───────────────────────────────────
@@ -485,4 +518,8 @@ class Paper:
             ),
             rest_lengths=self.rest_lengths.copy(),
             original_area=self.original_area,
+            rest_positions=self.rest_positions.copy(),
+            strain_per_vertex=self.strain_per_vertex.copy(),
+            energy=dict(self.energy),
+            fold_count=self.fold_count,
         )

@@ -151,6 +151,8 @@ def apply_fold(
             elif face_sides[i] == "fixed" and face_sides[j] == "rotated":
                 new_paper.face_orders.append((j, i, 1))
 
+    new_paper.fold_count += 1
+
     return new_paper, None
 
 
@@ -205,3 +207,43 @@ def execute_fold_strategy(
         applied.append(fold)
 
     return current, applied, None
+
+
+def apply_pleat(
+    paper: Paper,
+    line1: dict,
+    line2: dict,
+    angle: float = 180.0,
+) -> tuple[Paper, str | None]:
+    """Pleat fold: valley at line1, mountain at line2 (two parallel folds).
+
+    Both line dicts have the form: {"start": [x, y], "end": [x, y]}
+    Returns (new_paper, error_or_None).
+    """
+    paper, err = apply_fold(paper, {"type": "valley", "line": line1, "angle": angle})
+    if err:
+        return paper, f"Pleat valley fold failed: {err}"
+    paper, err = apply_fold(paper, {"type": "mountain", "line": line2, "angle": angle})
+    if err:
+        return paper, f"Pleat mountain fold failed: {err}"
+    return paper, None
+
+
+def apply_crimp(
+    paper: Paper,
+    line1: dict,
+    line2: dict,
+    angle: float = 180.0,
+) -> tuple[Paper, str | None]:
+    """Crimp fold: mountain at line1, valley at line2 (reverse of pleat).
+
+    Both line dicts have the form: {"start": [x, y], "end": [x, y]}
+    Returns (new_paper, error_or_None).
+    """
+    paper, err = apply_fold(paper, {"type": "mountain", "line": line1, "angle": angle})
+    if err:
+        return paper, f"Crimp mountain fold failed: {err}"
+    paper, err = apply_fold(paper, {"type": "valley", "line": line2, "angle": angle})
+    if err:
+        return paper, f"Crimp valley fold failed: {err}"
+    return paper, None

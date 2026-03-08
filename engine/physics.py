@@ -255,3 +255,263 @@ def _face_normal(verts: np.ndarray, face: list[int]) -> np.ndarray | None:
     if norm < 1e-15:
         return None
     return normal / norm
+
+
+# ────────────────────────────────────────────────────────────────────
+# Topology precomputation
+# ────────────────────────────────────────────────────────────────────
+
+def build_beam_list(paper: Paper) -> list[tuple[int, int, float, float]]:
+    """Build list of (node_a, node_b, rest_len, k_axial) for every edge.
+
+    Uses normalized stiffness values (arch doc constants) scaled by material
+    Young's modulus ratio — keeps the Verlet integrator stable at unit scale.
+    """
+    # Normalized stiffness constants (arch doc values)
+    K_AXIAL_BASE = 70.0
+    # Scale by material: paper (3 GPa) = 1.0 baseline
+    mat = paper.material
+    E_ratio = mat.youngs_modulus_gpa / 3.0
+    k_axial = K_AXIAL_BASE * E_ratio
+
+    beams = []
+    for ei, (v1, v2) in enumerate(paper.edges):
+        L0 = paper.rest_lengths[ei]
+        beams.append((int(v1), int(v2), float(L0), float(k_axial)))
+    return beams
+
+
+def build_crease_list(paper: Paper) -> list[tuple[int, int, int, int, float, float, str]]:
+    """Build list of (n1, n2, n3, n4, target_angle_rad, k, type) for each crease hinge.
+
+    Each hinge is defined by 4 nodes: n1-n2 is the hinge edge, n3 and n4 are
+    the wing-tip nodes of the two adjacent faces.
+    type is 'fold' (M/V crease) or 'facet' (interior flat edge).
+    """
+    verts = paper.vertices
+
+    # Build edge → face adjacency
+    edge_faces: dict[int, list[int]] = {}
+    for fi, face in enumerate(paper.faces):
+        n = len(face)
+        for k in range(n):
+            va, vb = face[k], face[(k + 1) % n]
+            for ei, e in enumerate(paper.edges):
+                if (e[0] == va and e[1] == vb) or (e[0] == vb and e[1] == va):
+                    edge_faces.setdefault(ei, []).append(fi)
+                    break
+
+    creases = []
+    for ei, adj in edge_faces.items():
+        if len(adj) < 2:
+            continue
+        f1, f2 = adj[0], adj[1]
+        face1, face2 = paper.faces[f1], paper.faces[f2]
+        n1, n2 = int(paper.edges[ei][0]), int(paper.edges[ei][1])
+
+        # Find wing-tip nodes (in each face, the vertex NOT on the shared edge)
+        wing1 = [v for v in face1 if v != n1 and v != n2]
+        wing2 = [v for v in face2 if v != n1 and v != n2]
+        if not wing1 or not wing2:
+            continue
+        n3, n4 = int(wing1[0]), int(wing2[0])
+
+        # Normalized stiffness constants (arch doc values), scaled by material
+        E_ratio = paper.material.youngs_modulus_gpa / 3.0
+        K_FACET = 0.2 * E_ratio
+        K_FOLD = 0.7 * E_ratio
+
+        asgn = paper.assignments[ei]
+        if asgn in ("M", "V"):
+            target = float(np.radians(paper.fold_angles[ei]))
+            k = K_FOLD
+            ctype = "fold"
+        else:
+            target = float(np.pi)
+            k = K_FACET
+            ctype = "facet"
+
+        creases.append((n1, n2, n3, n4, target, k, ctype))
+    return creases
+
+
+def _torque_to_forces(
+    p1: np.ndarray, p2: np.ndarray,
+    p3: np.ndarray, p4: np.ndarray,
+    torque: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Convert a dihedral torque into forces on the 4 hinge nodes.
+
+    p1-p2 is the hinge edge. p3 and p4 are wing tips.
+    Returns (f1, f2, f3, f4) as (3,) arrays.
+    """
+    e = p2 - p1
+    e_len = np.linalg.norm(e)
+    if e_len < 1e-12:
+        zero = np.zeros(3)
+        return zero, zero, zero, zero
+
+    e_hat = e / e_len
+
+    # Perpendicular components of wing vectors relative to hinge
+    d3 = p3 - p1
+    d4 = p4 - p1
+    d3_perp = d3 - np.dot(d3, e_hat) * e_hat
+    d4_perp = d4 - np.dot(d4, e_hat) * e_hat
+
+    len3 = np.linalg.norm(d3_perp)
+    len4 = np.linalg.norm(d4_perp)
+
+    if len3 < 1e-12 or len4 < 1e-12:
+        zero = np.zeros(3)
+        return zero, zero, zero, zero
+
+    # Force on wing tips proportional to torque / lever arm
+    f3 = torque / (len3 * e_len) * np.cross(e_hat, d3_perp / len3)
+    f4 = -torque / (len4 * e_len) * np.cross(e_hat, d4_perp / len4)
+
+    # Reaction forces distributed to hinge nodes
+    f1 = -(f3 + f4) * 0.5
+    f2 = -(f3 + f4) * 0.5
+
+    return f1, f2, f3, f4
+
+
+# ────────────────────────────────────────────────────────────────────
+# Verlet solver
+# ────────────────────────────────────────────────────────────────────
+
+def simulate(
+    paper: Paper,
+    fold_percent: float = 1.0,
+    n_steps: int = 500,
+    dt: float = 0.005,
+    damping: float = 0.15,
+) -> Paper:
+    """Run bar-and-hinge Verlet integration to relax the mesh.
+
+    Updates paper.vertices, paper.strain_per_vertex, and paper.energy in-place.
+    Returns the mutated paper for chaining.
+
+    Parameters
+    ----------
+    paper : Paper
+        Paper state after a fold has been applied (vertices already rotated).
+    fold_percent : float
+        How far along the fold to drive (0=flat, 1=full target angle).
+    n_steps : int
+        Maximum integration steps.
+    dt : float
+        Time step. Keep small (0.005) for stability with stiff materials.
+    damping : float
+        Velocity damping coefficient (0=undamped, 1=fully damped).
+    """
+    if len(paper.vertices) == 0:
+        return paper
+
+    beams = build_beam_list(paper)
+    creases = build_crease_list(paper)
+
+    pos = paper.vertices.copy()        # (N, 3) current positions
+    last_pos = pos.copy()              # (N, 3) previous positions (Verlet)
+
+    max_force_cap = 1e6  # prevent runaway forces
+
+    for _ in range(n_steps):
+        forces = np.zeros_like(pos)
+
+        # ── Beam (axial spring) forces ───────────────────────────────
+        for (a, b, L0, k) in beams:
+            delta = pos[b] - pos[a]
+            L = np.linalg.norm(delta)
+            if L < 1e-12:
+                continue
+            strain = (L - L0) / L0
+            F_mag = k * strain
+            F_vec = F_mag * (delta / L)
+            # Clamp to prevent instability
+            F_vec = np.clip(F_vec, -max_force_cap, max_force_cap)
+            forces[a] += F_vec
+            forces[b] -= F_vec
+
+        # ── Crease (dihedral spring) forces ─────────────────────────
+        for (n1, n2, n3, n4, target, k, ctype) in creases:
+            actual_target = target * fold_percent if ctype == "fold" else target
+            try:
+                theta = _compute_dihedral_rad(pos[n1], pos[n2], pos[n3], pos[n4])
+            except Exception:
+                continue
+            delta_theta = theta - actual_target
+            edge_len = np.linalg.norm(pos[n2] - pos[n1])
+            torque = k * edge_len * delta_theta
+            torque = float(np.clip(torque, -max_force_cap, max_force_cap))
+
+            f1, f2, f3, f4 = _torque_to_forces(
+                pos[n1], pos[n2], pos[n3], pos[n4], torque
+            )
+            forces[n1] += np.clip(f1, -max_force_cap, max_force_cap)
+            forces[n2] += np.clip(f2, -max_force_cap, max_force_cap)
+            forces[n3] += np.clip(f3, -max_force_cap, max_force_cap)
+            forces[n4] += np.clip(f4, -max_force_cap, max_force_cap)
+
+        # ── Verlet integration ───────────────────────────────────────
+        new_pos = pos + (1.0 - damping) * (pos - last_pos) + forces * (dt * dt)
+
+        # NaN guard
+        if np.any(np.isnan(new_pos)):
+            break
+
+        last_pos = pos
+        pos = new_pos
+
+        # ── Convergence check ────────────────────────────────────────
+        kinetic = np.sum((pos - last_pos) ** 2)
+        if kinetic < 1e-12:
+            break
+
+    # ── Write results back to paper ──────────────────────────────────
+    paper.vertices = pos
+    paper.strain_per_vertex = compute_strain(paper)
+    paper.energy = {
+        "total": compute_total_energy(paper),
+        "bar": compute_bar_energy(paper),
+        "facet": compute_facet_energy(paper),
+        "fold": compute_fold_energy(paper),
+    }
+
+    return paper
+
+
+def _compute_dihedral_rad(
+    p1: np.ndarray, p2: np.ndarray,
+    p3: np.ndarray, p4: np.ndarray,
+) -> float:
+    """Dihedral angle in radians between planes (p1,p2,p3) and (p1,p2,p4).
+
+    p1-p2 is the hinge edge. p3 and p4 are the wing tips.
+    Returns angle in [0, 2*pi).
+    """
+    e = p2 - p1
+    e_norm = np.linalg.norm(e)
+    if e_norm < 1e-12:
+        return float(np.pi)
+    e_hat = e / e_norm
+
+    n1 = np.cross(p3 - p1, e)
+    n2 = np.cross(e, p4 - p1)
+    len1 = np.linalg.norm(n1)
+    len2 = np.linalg.norm(n2)
+    if len1 < 1e-12 or len2 < 1e-12:
+        return float(np.pi)
+
+    n1 = n1 / len1
+    n2 = n2 / len2
+
+    cos_a = float(np.clip(np.dot(n1, n2), -1.0, 1.0))
+    angle = np.arccos(cos_a)
+
+    cross = np.cross(n1, n2)
+    if np.dot(cross, e_hat) < 0:
+        angle = 2.0 * np.pi - angle
+
+    return float(angle)

@@ -254,3 +254,25 @@ def validate_paper(paper: Paper) -> ValidationResult:
         self_intersection_count=si_count,
         is_valid=k_valid and m_valid and si_valid,
     )
+
+
+def validate_state(paper: Paper) -> dict:
+    """Run all validation checks and return a flat dict.
+
+    This is the interface used by OrigamiEnvironment. It calls the
+    existing validation functions and returns a dict with all fields
+    the environment and metrics system need.
+    """
+    result = validate_paper(paper)
+    strain_exceeded = bool(
+        len(paper.strain_per_vertex) > 0
+        and float(paper.strain_per_vertex.max()) > paper.material.max_strain
+    )
+    return {
+        "is_valid": result.is_valid and not strain_exceeded,
+        "kawasaki_violations": int(not result.kawasaki_valid),
+        "kawasaki_total_error": float(result.kawasaki_violation),
+        "maekawa_violations": int(not result.maekawa_valid),
+        "self_intersections": result.self_intersection_count,
+        "strain_exceeded": strain_exceeded,
+    }
