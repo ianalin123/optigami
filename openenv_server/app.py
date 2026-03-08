@@ -19,123 +19,116 @@ app = create_app(
 
 
 # ---------------------------------------------------------------------------
-# Demo routes required by the React frontend.
-# These must be registered BEFORE the StaticFiles catch-all mount.
+# Demo fold sequences — new format: type, line {start, end}, angle
 # ---------------------------------------------------------------------------
 
-DEMO_COMPLETIONS: dict[str, str] = {
-    "half_horizontal": '<folds>[{"instruction": "Valley fold along horizontal center line", "from": [0, 0.5], "to": [1, 0.5], "assignment": "V"}]</folds>',
-    "half_vertical": '<folds>[{"instruction": "Mountain fold along vertical center line", "from": [0.5, 0], "to": [0.5, 1], "assignment": "M"}]</folds>',
-    "diagonal_main": '<folds>[{"instruction": "Valley fold along main diagonal", "from": [0, 0], "to": [1, 1], "assignment": "V"}]</folds>',
-    "diagonal_anti": '<folds>[{"instruction": "Mountain fold along anti-diagonal", "from": [1, 0], "to": [0, 1], "assignment": "M"}]</folds>',
-    "thirds_h": '<folds>[{"instruction": "Valley fold at one-third height", "from": [0, 0.333], "to": [1, 0.333], "assignment": "V"}, {"instruction": "Valley fold at two-thirds height", "from": [0, 0.667], "to": [1, 0.667], "assignment": "V"}]</folds>',
-    "thirds_v": '<folds>[{"instruction": "Mountain fold at one-third width", "from": [0.333, 0], "to": [0.333, 1], "assignment": "M"}, {"instruction": "Mountain fold at two-thirds width", "from": [0.667, 0], "to": [0.667, 1], "assignment": "M"}]</folds>',
-    "accordion_3h": '<folds>[{"instruction": "Valley fold at quarter height", "from": [0, 0.25], "to": [1, 0.25], "assignment": "V"}, {"instruction": "Mountain fold at half height", "from": [0, 0.5], "to": [1, 0.5], "assignment": "M"}, {"instruction": "Valley fold at three-quarter height", "from": [0, 0.75], "to": [1, 0.75], "assignment": "V"}]</folds>',
-    "accordion_4h": '<folds>[{"instruction": "Valley fold at 0.2", "from": [0, 0.2], "to": [1, 0.2], "assignment": "V"}, {"instruction": "Mountain fold at 0.4", "from": [0, 0.4], "to": [1, 0.4], "assignment": "M"}, {"instruction": "Valley fold at 0.6", "from": [0, 0.6], "to": [1, 0.6], "assignment": "V"}, {"instruction": "Mountain fold at 0.8", "from": [0, 0.8], "to": [1, 0.8], "assignment": "M"}]</folds>',
+DEMO_SEQUENCES: dict[str, list[dict]] = {
+    "half_fold": [
+        {"type": "valley", "line": {"start": [0.0, 0.5], "end": [1.0, 0.5]}, "angle": 180.0},
+    ],
+    "quarter_fold": [
+        {"type": "valley", "line": {"start": [0.0, 0.5], "end": [1.0, 0.5]}, "angle": 180.0},
+        {"type": "valley", "line": {"start": [0.0, 0.5], "end": [1.0, 0.5]}, "angle": 180.0},
+    ],
+    "letter_fold": [
+        {"type": "valley", "line": {"start": [0.0, 0.333], "end": [1.0, 0.333]}, "angle": 180.0},
+        {"type": "mountain", "line": {"start": [0.0, 0.667], "end": [1.0, 0.667]}, "angle": 180.0},
+    ],
+    "map_fold": [
+        {"type": "valley", "line": {"start": [0.0, 0.5], "end": [1.0, 0.5]}, "angle": 180.0},
+        {"type": "mountain", "line": {"start": [0.5, 0.0], "end": [0.5, 1.0]}, "angle": 180.0},
+    ],
+    "solar_panel": [
+        {"type": "valley", "line": {"start": [0.0, 0.25], "end": [1.0, 0.25]}, "angle": 180.0},
+        {"type": "mountain", "line": {"start": [0.0, 0.5], "end": [1.0, 0.5]}, "angle": 180.0},
+        {"type": "valley", "line": {"start": [0.0, 0.75], "end": [1.0, 0.75]}, "angle": 180.0},
+    ],
+    "shelter_wall": [
+        {"type": "valley", "line": {"start": [0.0, 0.333], "end": [1.0, 0.333]}, "angle": 180.0},
+        {"type": "valley", "line": {"start": [0.0, 0.667], "end": [1.0, 0.667]}, "angle": 180.0},
+    ],
+    "stent": [
+        {"type": "valley", "line": {"start": [0.0, 0.25], "end": [1.0, 0.25]}, "angle": 90.0},
+        {"type": "mountain", "line": {"start": [0.0, 0.5], "end": [1.0, 0.5]}, "angle": 90.0},
+        {"type": "valley", "line": {"start": [0.0, 0.75], "end": [1.0, 0.75]}, "angle": 90.0},
+        {"type": "stop", "line": {"start": [0.0, 0.0], "end": [1.0, 1.0]}, "angle": 0.0},
+    ],
 }
 
 
+# ---------------------------------------------------------------------------
+# API routes — must be registered BEFORE the StaticFiles catch-all mount
+# ---------------------------------------------------------------------------
+
 @app.get("/targets", include_in_schema=True)
 def get_targets() -> dict:
-    """Return available target names and metadata for the frontend."""
-    from env.environment import OrigamiEnvironment
+    """Return available task names and metadata for the frontend."""
+    from server.tasks import get_task_by_name, available_task_names
 
-    env = OrigamiEnvironment()
     result: dict[str, dict] = {}
-    for name in env.available_targets():
-        t = env._targets[name]
+    for name in available_task_names():
+        t = get_task_by_name(name)
         result[name] = {
             "name": name,
-            "level": t.get("level", 1),
+            "level": t.get("difficulty", 1),
             "description": t.get("description", ""),
-            "n_creases": sum(1 for a in t["edges_assignment"] if a in ("M", "V")),
+            "n_creases": t.get("max_folds", 3),
+            "difficulty": t.get("difficulty", 1),
+            "material": t.get("material", "paper"),
         }
     return result
 
 
-@app.get("/episode/run", include_in_schema=True)
-def run_episode(target: str = "half_horizontal", completion: str = "") -> dict:
-    """Run a fold-sequence episode and return step-by-step data."""
-    from env.environment import OrigamiEnvironment
-    from env.prompts import parse_fold_list, step_level_prompt
-    from env.rewards import compute_reward
+@app.get("/episode/demo", include_in_schema=True)
+def demo_episode(target: str = "half_fold") -> dict:
+    """Return a pre-solved demo episode for the given task."""
+    from server.origami_environment import OrigamiEnvironment
+    from server.models import OrigamiAction as NewOrigamiAction
+    from server.tasks import get_task_by_name
 
-    env = OrigamiEnvironment(mode="step")
-    obs = env.reset(target_name=target)
+    # Fall back to half_fold if target not found
+    folds = DEMO_SEQUENCES.get(target, DEMO_SEQUENCES["half_fold"])
 
-    if not completion:
-        return {"prompt": obs["prompt"], "steps": [], "target": env.target}
-
-    try:
-        folds = parse_fold_list(completion)
-    except ValueError as exc:
-        return {"error": str(exc), "steps": []}
+    env = OrigamiEnvironment()
+    obs = env.reset(task_name=target)
 
     steps: list[dict] = []
-    for i, fold in enumerate(folds):
-        result = env.paper.add_crease(fold["from"], fold["to"], fold["assignment"])
-        reward = compute_reward(env.paper, result, env.target)
 
-        paper_state = {
-            "vertices": {str(k): list(v) for k, v in env.paper.graph.vertices.items()},
-            "edges": [
-                {
-                    "id": k,
-                    "v1": list(env.paper.graph.vertices[v[0]]),
-                    "v2": list(env.paper.graph.vertices[v[1]]),
-                    "assignment": v[2],
-                }
-                for k, v in env.paper.graph.edges.items()
-            ],
-            "anchor_points": [list(p) for p in env.paper.anchor_points()],
-        }
-
-        step_prompt = step_level_prompt(
-            target=env.target,
-            paper_state=env.paper,
-            step=i + 1,
-            max_steps=env.max_steps,
-            last_reward=reward,
-        )
-
-        steps.append(
-            {
-                "step": i + 1,
-                "fold": {
-                    "from_point": fold["from"],
-                    "to_point": fold["to"],
-                    "assignment": fold["assignment"],
-                    "instruction": fold.get("instruction", ""),
-                },
-                "paper_state": paper_state,
-                "anchor_points": [list(p) for p in env.paper.anchor_points()],
-                "reward": reward,
-                "done": reward.get("completion", 0) > 0,
-                "info": env._info(),
-                "prompt": step_prompt,
-            }
-        )
-
-        if reward.get("completion", 0) > 0:
+    for i, fold_dict in enumerate(folds):
+        if fold_dict.get("type") == "stop":
             break
 
+        action = NewOrigamiAction(
+            fold_type=fold_dict["type"],
+            fold_line=fold_dict["line"],
+            fold_angle=float(fold_dict.get("angle", 180.0)),
+        )
+
+        obs = env.step(action)
+
+        steps.append({
+            "step": i + 1,
+            "fold": fold_dict,
+            "paper_state": obs.paper_state,
+            "metrics": obs.metrics,
+            "done": obs.done,
+        })
+
+        if obs.done:
+            break
+
+    task_def = get_task_by_name(target) if target else {}
+
     return {
-        "target_name": target,
-        "target": env.target,
+        "task_name": target,
+        "task": task_def,
         "steps": steps,
-        "final_reward": steps[-1]["reward"] if steps else {},
+        "final_metrics": obs.metrics if steps else {},
     }
 
 
-@app.get("/episode/demo", include_in_schema=True)
-def demo_episode(target: str = "half_horizontal") -> dict:
-    """Return a pre-solved demo episode for the given target."""
-    completion = DEMO_COMPLETIONS.get(target, DEMO_COMPLETIONS["half_horizontal"])
-    return run_episode(target=target, completion=completion)
-
-
 # ---------------------------------------------------------------------------
-# Static file serving — must come LAST so API routes take priority.
+# Static file serving — must come LAST so API routes take priority
 # ---------------------------------------------------------------------------
 
 _BUILD_DIR = Path(__file__).resolve().parent.parent / "build"
