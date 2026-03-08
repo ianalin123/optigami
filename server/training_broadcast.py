@@ -27,6 +27,7 @@ class EpisodeInfo:
     observation: dict = field(default_factory=dict)
     metrics: dict = field(default_factory=dict)
     fold_history: list = field(default_factory=list)
+    steps: list = field(default_factory=list)   # full step history for replay
     score: Optional[float] = None
     final_metrics: Optional[dict] = None
 
@@ -50,17 +51,13 @@ class TrainingBroadcastServer:
     def publish(self, episode_id: str, data: dict) -> None:
         """Fire-and-forget: push an update from the training process.
 
-        Safe to call from any thread. If no event loop is running, logs and returns.
+        Safe to call from any thread. Schedules onto the stored event loop
+        (set by the FastAPI startup handler). No-op if no loop is available.
         """
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.ensure_future(self._async_publish(episode_id, data), loop=loop)
-            else:
-                loop.run_until_complete(self._async_publish(episode_id, data))
-        except RuntimeError:
-            # No event loop — training without server
-            pass
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return
+        asyncio.run_coroutine_threadsafe(self._async_publish(episode_id, data), loop)
 
     async def _async_publish(self, episode_id: str, data: dict) -> None:
         msg_type = data.get("type", "episode_update")
@@ -91,12 +88,24 @@ class TrainingBroadcastServer:
                 ep.score = data.get("score")
                 ep.final_metrics = data.get("final_metrics")
             else:
-                ep.step = data.get("step", ep.step)
+                step_num = data.get("step", ep.step)
+                ep.step = step_num
                 ep.status = "running"
                 obs = data.get("observation", {})
                 ep.observation = obs
                 ep.metrics = obs.get("metrics", {})
                 ep.fold_history = obs.get("fold_history", ep.fold_history)
+                # Accumulate full step history for /episode/replay
+                if step_num > 0:
+                    fold_hist = obs.get("fold_history", [])
+                    latest_fold = fold_hist[-1] if fold_hist else {}
+                    ep.steps.append({
+                        "step": step_num,
+                        "fold": latest_fold,
+                        "paper_state": obs.get("paper_state", {}),
+                        "metrics": obs.get("metrics", {}),
+                        "done": obs.get("done", False),
+                    })
 
         await self._broadcast({"episode_id": episode_id, **data})
 
