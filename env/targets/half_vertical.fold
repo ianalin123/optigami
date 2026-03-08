@@ -1,0 +1,43 @@
+{
+  "vertices_coords": [
+    [0.0, 0.0],
+    [1.0, 0.0],
+    [1.0, 1.0],
+    [0.0, 1.0],
+    [0.5, 0.0],
+    [0.5, 1.0]
+  ],
+  "edges_vertices": [
+    [0, 4],
+    [4, 1],
+    [1, 2],
+    [2, 5],
+    [5, 3],
+    [3, 0],
+    [4, 5]
+  ],
+  "edges_assignment": [
+    "B",
+    "B",
+    "B",
+    "B",
+    "B",
+    "B",
+    "M"
+  ],
+  "edges_foldAngle": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    -180
+  ],
+  "faces_vertices": [
+    [0, 4, 5, 3],
+    [4, 1, 2, 5]
+  ],
+  "level": 1,
+  "description": "One mountain fold along x=0.5, folding the paper in half vertically"
+}

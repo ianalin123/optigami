@@ -1,0 +1,43 @@
+{
+  "vertices_coords": [
+    [0.0, 0.0],
+    [1.0, 0.0],
+    [1.0, 1.0],
+    [0.0, 1.0],
+    [0.0, 0.5],
+    [1.0, 0.5]
+  ],
+  "edges_vertices": [
+    [0, 1],
+    [1, 5],
+    [5, 2],
+    [2, 3],
+    [3, 4],
+    [4, 0],
+    [4, 5]
+  ],
+  "edges_assignment": [
+    "B",
+    "B",
+    "B",
+    "B",
+    "B",
+    "B",
+    "V"
+  ],
+  "edges_foldAngle": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    -180
+  ],
+  "faces_vertices": [
+    [0, 1, 5, 4],
+    [4, 5, 2, 3]
+  ],
+  "level": 1,
+  "description": "One valley fold along y=0.5, folding the paper in half horizontally"
+}

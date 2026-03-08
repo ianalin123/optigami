@@ -28,3 +28,5 @@ __pycache__/
 
 # Reference repos (not pushed to HF)
 .reference/
+*.pyc
+__pycache__/

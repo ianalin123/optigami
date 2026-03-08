@@ -1,0 +1,6 @@
+spec_version: 1
+name: optigami
+type: space
+runtime: fastapi
+app: openenv_server.app:app
+port: 8000
