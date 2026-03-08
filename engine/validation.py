@@ -97,7 +97,7 @@ def check_kawasaki(paper: Paper) -> tuple[bool, float]:
         violation = abs(even_sum - odd_sum)
         total_violation += violation
 
-    is_valid = total_violation < 1e-4
+    is_valid = bool(total_violation < 1e-4)
     return is_valid, float(total_violation)
 
 

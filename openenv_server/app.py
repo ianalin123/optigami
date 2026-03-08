@@ -1,9 +1,28 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-from fastapi.responses import HTMLResponse
+import numpy as np
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+
+
+def _np_default(obj):
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    raise TypeError(f"Not serializable: {type(obj)}")
+
+
+class NumpyJSONResponse(JSONResponse):
+    def render(self, content) -> bytes:
+        return json.dumps(content, default=_np_default).encode("utf-8")
 from openenv.core.env_server.http_server import create_app
 
 from openenv_runtime.environment import OpenEnvOrigamiEnvironment
@@ -60,8 +79,8 @@ DEMO_SEQUENCES: dict[str, list[dict]] = {
 # API routes — must be registered BEFORE the StaticFiles catch-all mount
 # ---------------------------------------------------------------------------
 
-@app.get("/targets", include_in_schema=True)
-def get_targets() -> dict:
+@app.get("/targets", include_in_schema=True, response_class=NumpyJSONResponse)
+def get_targets():
     """Return available task names and metadata for the frontend."""
     from server.tasks import get_task_by_name, available_task_names
 
@@ -76,11 +95,11 @@ def get_targets() -> dict:
             "difficulty": t.get("difficulty", 1),
             "material": t.get("material", "paper"),
         }
-    return result
+    return NumpyJSONResponse(result)
 
 
-@app.get("/episode/demo", include_in_schema=True)
-def demo_episode(target: str = "half_fold") -> dict:
+@app.get("/episode/demo", include_in_schema=True, response_class=NumpyJSONResponse)
+def demo_episode(target: str = "half_fold"):
     """Return a pre-solved demo episode for the given task."""
     from server.origami_environment import OrigamiEnvironment
     from server.models import OrigamiAction as NewOrigamiAction
@@ -119,12 +138,12 @@ def demo_episode(target: str = "half_fold") -> dict:
 
     task_def = get_task_by_name(target) if target else {}
 
-    return {
+    return NumpyJSONResponse({
         "task_name": target,
         "task": task_def,
         "steps": steps,
         "final_metrics": obs.metrics if steps else {},
-    }
+    })
 
 
 # ---------------------------------------------------------------------------

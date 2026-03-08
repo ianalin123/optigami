@@ -10,13 +10,32 @@ Usage in training:
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
+import numpy as np
 import uvicorn
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+
+
+def _np_default(obj):
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    raise TypeError(f"Not serializable: {type(obj)}")
+
+
+class NumpyJSONResponse(JSONResponse):
+    def render(self, content) -> bytes:
+        return json.dumps(content, default=_np_default).encode("utf-8")
 
 from server.training_broadcast import TrainingBroadcastServer
 
@@ -59,10 +78,10 @@ def health() -> dict:
 
 # ── Demo endpoints (same as openenv_server/app.py so the React UI works) ──
 
-@app.get("/targets")
-def get_targets() -> dict:
+@app.get("/targets", response_class=NumpyJSONResponse)
+def get_targets():
     from server.tasks import available_task_names, get_task_by_name
-    return {
+    return NumpyJSONResponse({
         name: {
             "name": name,
             "level": t["difficulty"],
@@ -73,7 +92,7 @@ def get_targets() -> dict:
         }
         for name in available_task_names()
         if (t := get_task_by_name(name))
-    }
+    })
 
 
 _DEMO_SEQUENCES: dict[str, list[dict]] = {
@@ -90,8 +109,8 @@ _DEMO_SEQUENCES: dict[str, list[dict]] = {
 }
 
 
-@app.get("/episode/demo")
-def demo_episode(target: str = "half_fold") -> dict:
+@app.get("/episode/demo", response_class=NumpyJSONResponse)
+def demo_episode(target: str = "half_fold"):
     from server.origami_environment import OrigamiEnvironment
     from server.models import OrigamiAction as NewAction
     from server.tasks import get_task_by_name
@@ -114,23 +133,23 @@ def demo_episode(target: str = "half_fold") -> dict:
         if obs.done:
             break
 
-    return {"task_name": target, "task": get_task_by_name(target) or {},
-            "steps": steps, "final_metrics": obs.metrics if steps else {}}
+    return NumpyJSONResponse({"task_name": target, "task": get_task_by_name(target) or {},
+                               "steps": steps, "final_metrics": obs.metrics if steps else {}})
 
 
-@app.get("/episode/replay/{ep_id}")
-def replay_episode(ep_id: str) -> dict:
+@app.get("/episode/replay/{ep_id}", response_class=NumpyJSONResponse)
+def replay_episode(ep_id: str):
     """Return a stored training episode in the same format as /episode/demo."""
     from server.tasks import get_task_by_name
     ep = broadcast._registry.get(ep_id)
     if not ep:
         raise HTTPException(status_code=404, detail=f"Episode '{ep_id}' not found in registry")
-    return {
+    return NumpyJSONResponse({
         "task_name": ep.task_name,
         "task": get_task_by_name(ep.task_name) or {},
         "steps": ep.steps,
         "final_metrics": ep.final_metrics or (ep.steps[-1]["metrics"] if ep.steps else {}),
-    }
+    })
 
 
 # ── Static files — viewer first, then React app (LAST, catch-all) ──
