@@ -20,7 +20,14 @@ if PROJECT_ROOT not in sys.path:
 
 from trainer.prompts import build_prompt, SYSTEM_PROMPT, get_task_target_ratio, get_task_max_folds
 from trainer.rewards import code_valid, physically_valid, fold_quality, set_task_config
-from trainer.mock_env import Material
+
+try:
+    from engine.materials import get_material
+    Material = type(get_material("paper"))  # get the Material class
+except ImportError:
+    from trainer.mock_env import Material
+    def get_material(name):
+        return Material()
 
 # ============================================================================
 # Config
@@ -82,7 +89,7 @@ def main():
     set_task_config(
         width=1.0,
         height=1.0,
-        material=Material(),
+        material=get_material("paper"),
         target_ratio=target_ratio,
         max_folds=max_folds,
     )
