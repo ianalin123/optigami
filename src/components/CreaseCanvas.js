@@ -13,10 +13,11 @@ function GhostEdges({ target, dim }) {
   return edges_vertices.map((ev, i) => {
     const asgn = edges_assignment[i];
     if (asgn === 'B') return null;
-    const [v1x, v1y] = vertices_coords[ev[0]];
-    const [v2x, v2y] = vertices_coords[ev[1]];
-    const [x1, y1] = toSvg(v1x, v1y, dim);
-    const [x2, y2] = toSvg(v2x, v2y, dim);
+    const v1 = vertices_coords[ev[0]];
+    const v2 = vertices_coords[ev[1]];
+    if (!v1 || !v2) return null;
+    const [x1, y1] = toSvg(v1[0], v1[1], dim);
+    const [x2, y2] = toSvg(v2[0], v2[1], dim);
     const color = asgn === 'M' ? MOUNTAIN : VALLEY;
     return (
       <line
@@ -32,40 +33,28 @@ function GhostEdges({ target, dim }) {
 }
 
 function CurrentEdges({ paperState, dim }) {
-  if (!paperState || !paperState.edges) return null;
-  return paperState.edges.map((edge) => {
-    if (edge.assignment === 'B') return null;
-    const [x1, y1] = toSvg(edge.v1[0], edge.v1[1], dim);
-    const [x2, y2] = toSvg(edge.v2[0], edge.v2[1], dim);
-    const color = edge.assignment === 'M' ? MOUNTAIN : VALLEY;
+  if (!paperState) return null;
+  const { vertices_coords, edges_vertices, edges_assignment } = paperState;
+  if (!vertices_coords || !edges_vertices || !edges_assignment) return null;
+
+  return edges_vertices.map((ev, i) => {
+    const asgn = edges_assignment[i];
+    if (asgn === 'B' || asgn === 'F') return null;
+    const v1 = vertices_coords[ev[0]];
+    const v2 = vertices_coords[ev[1]];
+    if (!v1 || !v2) return null;
+    // vertices_coords are 3D [x, y, z] — use only x and y
+    const [x1, y1] = toSvg(v1[0], v1[1], dim);
+    const [x2, y2] = toSvg(v2[0], v2[1], dim);
+    const color = asgn === 'M' ? MOUNTAIN : VALLEY;
     return (
       <line
-        key={edge.id}
+        key={i}
         x1={x1} y1={y1} x2={x2} y2={y2}
         stroke={color}
         strokeWidth={2.5}
         strokeLinecap="square"
       />
-    );
-  });
-}
-
-function AnchorCrosses({ paperState, dim }) {
-  if (!paperState || !paperState.anchor_points) return null;
-  const size = 4;
-  return paperState.anchor_points.map((pt, i) => {
-    const [cx, cy] = toSvg(pt[0], pt[1], dim);
-    return (
-      <g key={i}>
-        <line
-          x1={cx - size} y1={cy} x2={cx + size} y2={cy}
-          stroke="#64748b" strokeWidth={1}
-        />
-        <line
-          x1={cx} y1={cy - size} x2={cx} y2={cy + size}
-          stroke="#64748b" strokeWidth={1}
-        />
-      </g>
     );
   });
 }
@@ -94,10 +83,7 @@ export default function CreaseCanvas({ paperState, target, dim = 280, ghostOnly 
 
       {/* Current paper state */}
       {!ghostOnly && (
-        <>
-          <CurrentEdges paperState={paperState} dim={size} />
-          <AnchorCrosses paperState={paperState} dim={size} />
-        </>
+        <CurrentEdges paperState={paperState} dim={size} />
       )}
 
       {/* Paper border */}
