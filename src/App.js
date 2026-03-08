@@ -12,11 +12,10 @@ const API_BASE = '';
 
 function App() {
   const [targets, setTargets] = useState({});
-  const [selectedTarget, setSelectedTarget] = useState('half_horizontal');
+  const [selectedTarget, setSelectedTarget] = useState('half_fold');
   const [episode, setEpisode] = useState(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [foldRenderMode, setFoldRenderMode] = useState('progressive'); // 'progressive' | 'final'
   const [apiStatus, setApiStatus] = useState('connecting'); // 'connecting' | 'ok' | 'err'
   const [episodeLoading, setEpisodeLoading] = useState(false);
   const intervalRef = useRef(null);
@@ -99,7 +98,6 @@ function App() {
   };
 
   const targetDef = targets[selectedTarget] || null;
-  const targetFold = episode ? episode.target : null;
 
   return (
     <div className="app">
@@ -138,12 +136,12 @@ function App() {
           <div className="canvas-row">
             <div className="canvas-wrap">
               <span className="canvas-label">
-                TARGET — {targetDef ? targetDef.name.replace(/_/g, ' ').toUpperCase() : '—'}
+                TASK — {targetDef ? targetDef.name.replace(/_/g, ' ').toUpperCase() : '—'}
               </span>
               <CreaseCanvas
                 paperState={null}
-                target={targetFold}
-                label="TARGET"
+                target={null}
+                label="TASK"
                 dim={280}
                 ghostOnly={true}
               />
@@ -154,7 +152,7 @@ function App() {
               </span>
               <CreaseCanvas
                 paperState={activeStepData ? activeStepData.paper_state : null}
-                target={targetFold}
+                target={null}
                 label={currentStep === 0 ? 'INITIAL' : `STEP ${currentStep}`}
                 dim={280}
                 ghostOnly={false}
@@ -163,28 +161,10 @@ function App() {
             <div className="canvas-wrap">
               <div className="canvas-label-row">
                 <span className="canvas-label">3D FOLD PREVIEW</span>
-                <div className="fold-mode-toggle">
-                  <button
-                    className={`fold-mode-btn${foldRenderMode === 'progressive' ? ' active' : ''}`}
-                    onClick={() => setFoldRenderMode('progressive')}
-                    type="button"
-                  >
-                    PER CREASE
-                  </button>
-                  <button
-                    className={`fold-mode-btn${foldRenderMode === 'final' ? ' active' : ''}`}
-                    onClick={() => setFoldRenderMode('final')}
-                    type="button"
-                  >
-                    FOLD AT END
-                  </button>
-                </div>
               </div>
               <Fold3DCanvas
                 steps={episode ? episode.steps : []}
                 currentStep={currentStep}
-                totalSteps={totalSteps}
-                mode={foldRenderMode}
                 dim={280}
               />
             </div>
@@ -207,10 +187,14 @@ function App() {
         </div>
 
         <div className="app-right">
-          <div className="section-header">REWARD DECOMPOSITION</div>
-          <RewardPanel reward={activeStepData ? activeStepData.reward : null} />
+          <div className="section-header">METRICS</div>
+          <RewardPanel metrics={activeStepData ? activeStepData.metrics : null} />
           <div className="section-header">EPISODE INFO</div>
-          <InfoBadges info={activeStepData ? activeStepData.info : null} targetDef={targetDef} />
+          <InfoBadges
+            metrics={activeStepData ? activeStepData.metrics : null}
+            paperState={activeStepData ? activeStepData.paper_state : null}
+            targetDef={targetDef}
+          />
         </div>
       </div>
     </div>
