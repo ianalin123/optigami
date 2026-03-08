@@ -1,26 +1,82 @@
 """
 Prompt templates for origami fold strategy generation.
 
-The LLM receives a task description and paper state, then generates
-a fold_strategy(paper_state) function that returns fold operations.
+Inspired by SpatialThinker (arXiv 2511.07403): the model must produce
+a structured spatial representation BEFORE generating code.
+
+Output format (4 stages):
+  <observe>  — Describe the paper geometry and constraints
+  <plan>     — Structured fold plan with coordinates and reasoning
+  <code>     — The fold_strategy() function
+  <verify>   — Predict expected outcome (deployment ratio, fold count)
+
+Dense rewards check each stage independently, not just code execution.
 """
 
-SYSTEM_PROMPT = """\
-You are an origami engineer. You design fold patterns for real-world applications \
-like solar panel packing, deployable shelters, and medical stents.
+# ---------------------------------------------------------------------------
+# System prompt — defines the structured output format
+# ---------------------------------------------------------------------------
 
-You will be given a folding task with material constraints. Write a Python function \
-`fold_strategy(paper_state)` that returns a list of fold operations to achieve the goal.
+SYSTEM_PROMPT = """\
+You are an origami engineer specializing in computational fold design.
+You solve folding tasks by reasoning spatially about paper geometry.
+
+You MUST respond in exactly this 4-stage format:
+
+<observe>
+Describe the paper: dimensions, material, coordinate system.
+Identify key geometric features (center, edges, diagonals, symmetry axes).
+Note constraints (max strain, max folds, target ratio).
+</observe>
+
+<plan>
+{
+  "strategy": "description of overall approach",
+  "folds": [
+    {
+      "description": "what this fold does",
+      "type": "valley or mountain",
+      "line_start": [x, y],
+      "line_end": [x, y],
+      "angle": 180,
+      "reasoning": "why these coordinates"
+    }
+  ],
+  "expected_ratio": 0.5,
+  "expected_folds": 1
+}
+</plan>
+
+<code>
+```python
+def fold_strategy(paper_state):
+    # Implementation matching the plan above
+    return [...]
+```
+</code>
+
+<verify>
+Expected deployment ratio: X.XX
+Expected fold count: N
+Expected max strain: X.XXXX
+Potential issues: ...
+</verify>
 
 Rules:
 - Only use native Python (no imports except math, itertools, functools)
 - Each fold: {"type": "valley"|"mountain", "line": {"start": [x,y], "end": [x,y]}, "angle": 0-180}
-- Fold lines must intersect the paper boundaries
+- Fold lines must cross the paper boundary (intersect at least 2 edges)
+- Valley = fold toward you (+Z), Mountain = fold away (-Z)
+- angle=180 = fully folded, smaller = partial fold
+- Each fold changes the geometry — later folds operate on already-folded paper
 - Fewer folds is better (efficiency matters)
-- Respect material strain limits
-- Output ONLY the function in ```python ... ``` backticks\
+- Respect material strain limits\
 """
 
+
+# ---------------------------------------------------------------------------
+# Task templates — each includes spatial context
+# ---------------------------------------------------------------------------
 
 TASK_TEMPLATES = {
     "half_fold": {
@@ -28,22 +84,16 @@ TASK_TEMPLATES = {
         "prompt": """\
 TASK: Fold a {width}m x {height}m {material} sheet in half to minimize one dimension.
 
+PAPER GEOMETRY:
+  Corners: (0,0), ({width},0), ({width},{height}), (0,{height})
+  Center: ({cx},{cy})
+  Horizontal midline: y={cy} from (0,{cy}) to ({width},{cy})
+  Vertical midline: x={cx} from ({cx},0) to ({cx},{height})
+  Diagonals: (0,0)→({width},{height}) and ({width},0)→(0,{height})
+
 MATERIAL: {material} (thickness: {thickness_mm}mm, max strain: {max_strain_pct}%)
 CONSTRAINTS: Maximum {max_folds} fold operations.
-TARGET: Deployment ratio <= 0.5 (folded area is half or less of original)
-
-CURRENT STATE:
-  Sheet: {width}m x {height}m, flat (0 folds applied)
-  Bounding box: {width}m x {height}m x 0.0m
-
-Write a fold_strategy(paper_state) function that returns a list of fold operations.
-Each fold: {{"type": "valley"|"mountain", "line": {{"start": [x,y], "end": [x,y]}}, "angle": 0-180}}
-
-```python
-def fold_strategy(paper_state):
-    # Your code here
-    return [...]
-```""",
+TARGET: Deployment ratio <= 0.5""",
         "target_ratio": 0.5,
         "max_folds": 3,
     },
@@ -53,21 +103,14 @@ def fold_strategy(paper_state):
         "prompt": """\
 TASK: Fold a {width}m x {height}m {material} sheet into thirds (like a letter).
 
+PAPER GEOMETRY:
+  Corners: (0,0), ({width},0), ({width},{height}), (0,{height})
+  Third lines: y={t1:.4f} and y={t2:.4f}
+  Center: ({cx},{cy})
+
 MATERIAL: {material} (thickness: {thickness_mm}mm, max strain: {max_strain_pct}%)
 CONSTRAINTS: Maximum {max_folds} fold operations.
-TARGET: Deployment ratio <= 0.33
-
-CURRENT STATE:
-  Sheet: {width}m x {height}m, flat (0 folds applied)
-
-Write a fold_strategy(paper_state) function that returns a list of fold operations.
-Each fold: {{"type": "valley"|"mountain", "line": {{"start": [x,y], "end": [x,y]}}, "angle": 0-180}}
-
-```python
-def fold_strategy(paper_state):
-    # Your code here
-    return [...]
-```""",
+TARGET: Deployment ratio <= 0.33""",
         "target_ratio": 0.33,
         "max_folds": 5,
     },
@@ -78,30 +121,22 @@ def fold_strategy(paper_state):
 TASK: Fold a {width}m x {height}m Mylar sheet to minimize packed volume for a solar panel.
 The folded panel must be deployable (unfold cleanly to near-original area).
 
+PAPER GEOMETRY:
+  Corners: (0,0), ({width},0), ({width},{height}), (0,{height})
+  Center: ({cx},{cy})
+  Area: {area}m²
+
 MATERIAL: Mylar (thickness: 0.05mm, Young's modulus: 4 GPa, max strain: 3%)
 CONSTRAINTS:
   - Maximum {max_folds} fold operations
   - Must pack into bounding box <= 15cm x 15cm x 5cm
-  - Must deploy to >= 80% of original area
   - No self-intersections
 
-TARGET: Deployment ratio <= 0.05 (95% volume reduction)
+TARGET: Deployment ratio <= 0.05 (95% area reduction)
 
-CURRENT STATE:
-  Sheet: {width}m x {height}m, flat (0 folds applied)
-  Bounding box: {width}m x {height}m x 0.0m
-
-HINT: Consider tessellated patterns like Miura-ori — alternating mountain and valley
-folds in a grid create a highly compact, single-DOF deployable structure.
-
-Write a fold_strategy(paper_state) function that returns a list of fold operations.
-Each fold: {{"type": "valley"|"mountain", "line": {{"start": [x,y], "end": [x,y]}}, "angle": 0-180}}
-
-```python
-def fold_strategy(paper_state):
-    # Your code here
-    return [...]
-```""",
+HINT: Tessellated patterns (alternating M/V folds in a grid) achieve high
+compaction with single-DOF deployment. Consider dividing the sheet into
+a regular grid of panels.""",
         "target_ratio": 0.05,
         "max_folds": 20,
     },
@@ -111,29 +146,26 @@ def fold_strategy(paper_state):
         "prompt": """\
 TASK: Fold a {width}m x {height}m Nitinol sheet into a compact cylinder for a medical stent.
 
+PAPER GEOMETRY:
+  Corners: (0,0), ({width},0), ({width},{height}), (0,{height})
+  Center: ({cx},{cy})
+
 MATERIAL: Nitinol (thickness: 0.1mm, Young's modulus: 75 GPa, max strain: 8%)
 CONSTRAINTS:
   - Maximum {max_folds} fold operations
-  - Compressed diameter: 3mm
-  - Deployed diameter: 10mm
-  - Must be radially deployable
+  - Compressed diameter: 3mm, Deployed diameter: 10mm
 
-TARGET: Minimize packed cross-section while maintaining deployability.
-
-Write a fold_strategy(paper_state) function that returns a list of fold operations.
-
-```python
-def fold_strategy(paper_state):
-    # Your code here
-    return [...]
-```""",
+TARGET: Deployment ratio <= 0.1""",
         "target_ratio": 0.1,
         "max_folds": 15,
     },
 }
 
 
-# Default task configs for each level
+# ---------------------------------------------------------------------------
+# Config and builders
+# ---------------------------------------------------------------------------
+
 TASK_CONFIGS = {
     "half_fold": {
         "width": 1.0, "height": 1.0, "material": "paper",
@@ -158,6 +190,16 @@ def build_prompt(task_name: str = "half_fold", **overrides) -> str:
     """Build a complete user prompt for a given task."""
     task = TASK_TEMPLATES[task_name]
     config = {**TASK_CONFIGS[task_name], **overrides}
+
+    # Add computed geometry values
+    w = config["width"]
+    h = config["height"]
+    config["cx"] = w / 2
+    config["cy"] = h / 2
+    config["area"] = w * h
+    config["t1"] = h / 3
+    config["t2"] = 2 * h / 3
+
     return task["prompt"].format(**config)
 
 

@@ -19,7 +19,10 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from trainer.prompts import build_prompt, SYSTEM_PROMPT, get_task_target_ratio, get_task_max_folds
-from trainer.rewards import code_valid, physically_valid, fold_quality, set_task_config
+from trainer.rewards import (
+    code_valid, physically_valid, fold_quality, set_task_config,
+    format_reward, spatial_reward, execution_reward, consistency_reward,
+)
 
 try:
     from engine.materials import get_material
@@ -167,14 +170,18 @@ def main():
     # ========================================================================
     # 6. Create trainer and start training
     # ========================================================================
+    # SpatialThinker dense rewards (weighted: 0.10 + 0.20 + 0.50 + 0.20)
+    # These replace the legacy 3-reward setup with structured spatial reasoning
     trainer = GRPOTrainer(
         model=model,
         processing_class=tokenizer,
         reward_funcs=[
-            code_valid,          # Reward 1: valid Python?
-            physically_valid,    # Reward 2: physically possible folds?
-            fold_quality,        # Reward 3: how good is the solution?
+            format_reward,       # 0.10 — 4-stage format compliance
+            spatial_reward,      # 0.20 — fold plan geometric validity
+            execution_reward,    # 0.50 — code execution + physical quality
+            consistency_reward,  # 0.20 — plan↔code↔verify agreement
         ],
+        reward_weights=[0.10, 0.20, 0.50, 0.20],
         args=training_args,
         train_dataset=dataset,
     )

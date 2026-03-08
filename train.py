@@ -2,9 +2,14 @@
 OrigamiRL — GRPO Training Script
 Code-as-policy: model generates complete fold sequence, gets terminal reward.
 
+Base model: SpatialThinker (Qwen2.5-VL-7B fine-tuned for spatial reasoning)
+or any Unsloth-compatible model.
+
 Usage:
     python train.py
-    python train.py --model unsloth/Qwen2.5-7B-Instruct --epochs 3 --output origami-grpo
+    python train.py --model unsloth/Qwen2.5-VL-7B-Instruct --epochs 3
+    python train.py --model OX-PIXL/SpatialThinker-Qwen2.5-VL-7B --epochs 3
+    python train.py --dry_run  # test rewards without GPU
 """
 import argparse
 import json
@@ -13,10 +18,19 @@ import random
 from pathlib import Path
 from typing import Optional
 
+# VL (vision-language) model identifiers — use FastVisionModel for these
+_VL_MODEL_PATTERNS = ['VL', 'vl', 'Vision', 'vision', 'SpatialThinker', 'SpaceThinker']
+
+
+def _is_vl_model(model_name: str) -> bool:
+    return any(p in model_name for p in _VL_MODEL_PATTERNS)
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', default='unsloth/Qwen2.5-7B-Instruct')
+    parser.add_argument('--model', default='unsloth/Qwen2.5-VL-7B-Instruct',
+                        help='Base model. Use unsloth/Qwen2.5-VL-7B-Instruct or '
+                             'OX-PIXL/SpatialThinker-Qwen2.5-VL-7B for spatial reasoning')
     parser.add_argument('--max_seq_length', type=int, default=2048)
     parser.add_argument('--epochs', type=int, default=3)
     parser.add_argument('--batch_size', type=int, default=2)
@@ -148,20 +162,29 @@ def main():
         return
 
     # Load model via unsloth
+    # VL models (SpatialThinker, Qwen2.5-VL) use FastVisionModel
+    # Text-only models use FastLanguageModel
+    is_vl = _is_vl_model(args.model)
+
     try:
-        from unsloth import FastLanguageModel
+        if is_vl:
+            from unsloth import FastVisionModel as ModelLoader
+            print(f"Loading VL model (vision-language): {args.model}")
+        else:
+            from unsloth import FastLanguageModel as ModelLoader
+            print(f"Loading text model: {args.model}")
     except ImportError:
         print("ERROR: unsloth not installed. Run: pip install unsloth")
         print("Or run with --dry_run to test the reward function without a model.")
         return
 
-    model, tokenizer = FastLanguageModel.from_pretrained(
+    model, tokenizer = ModelLoader.from_pretrained(
         model_name=args.model,
         max_seq_length=args.max_seq_length,
         load_in_4bit=True,
     )
 
-    model = FastLanguageModel.get_peft_model(
+    model = ModelLoader.get_peft_model(
         model,
         r=32,
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
@@ -193,7 +216,7 @@ def main():
         num_generations=args.n_generations,
         temperature=1.0,
         logging_steps=1,
-        report_to="wandb",
+        report_to="trackio",
         run_name="origami-grpo",
     )
 

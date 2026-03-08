@@ -135,6 +135,22 @@ def apply_fold_mock(state: PaperState, fold: dict) -> tuple[PaperState, str | No
     if fold_type not in ("valley", "mountain"):
         return state, f"Unknown fold type: {fold_type}"
 
+    # angle=0 means "no fold" — return unchanged copy
+    if angle_deg == 0:
+        return PaperState(
+            vertices=state.vertices.copy(), edges=state.edges.copy(),
+            faces=[f[:] for f in state.faces],
+            assignments=state.assignments[:], fold_angles=state.fold_angles.copy(),
+            rest_lengths=state.rest_lengths.copy(), strain=state.strain.copy(),
+            energy=state.energy, face_orders=state.face_orders[:],
+            num_layers=state.num_layers, material=state.material,
+            bounding_box=state.bounding_box.copy(),
+            deployment_ratio=state.deployment_ratio, is_valid=state.is_valid,
+            kawasaki_violation=state.kawasaki_violation,
+            maekawa_violation=state.maekawa_violation,
+            self_intersections=state.self_intersections,
+        ), None
+
     if not (0 < angle_deg <= 180):
         return state, f"Angle must be in (0, 180], got {angle_deg}"
 
