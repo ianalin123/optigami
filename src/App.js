@@ -8,7 +8,7 @@ import TargetSelector from './components/TargetSelector';
 import PlayerControls from './components/PlayerControls';
 import Fold3DCanvas from './components/Fold3DCanvas';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = '';
 
 function App() {
   const [targets, setTargets] = useState({});
