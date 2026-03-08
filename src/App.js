@@ -10,15 +10,21 @@ import Fold3DCanvas from './components/Fold3DCanvas';
 
 const API_BASE = '';
 
+// Read ?ep=<episode_id> from URL — set when navigating from training grid
+const _urlParams = new URLSearchParams(window.location.search);
+const REPLAY_EP_ID = _urlParams.get('ep') || null;
+
 function App() {
   const [targets, setTargets] = useState({});
   const [selectedTarget, setSelectedTarget] = useState('half_fold');
   const [episode, setEpisode] = useState(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [apiStatus, setApiStatus] = useState('connecting'); // 'connecting' | 'ok' | 'err'
+  const [apiStatus, setApiStatus] = useState('connecting');
   const [episodeLoading, setEpisodeLoading] = useState(false);
   const intervalRef = useRef(null);
+
+  const isReplayMode = REPLAY_EP_ID !== null;
 
   const fetchTargets = useCallback(async () => {
     try {
@@ -50,13 +56,35 @@ function App() {
     }
   }, []);
 
+  const fetchReplayEpisode = useCallback(async (epId) => {
+    setEpisodeLoading(true);
+    setPlaying(false);
+    setCurrentStep(0);
+    try {
+      const res = await fetch(`${API_BASE}/episode/replay/${epId}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setEpisode(data);
+      setApiStatus('ok');
+    } catch {
+      setEpisode(null);
+      setApiStatus('err');
+    } finally {
+      setEpisodeLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchTargets();
   }, [fetchTargets]);
 
   useEffect(() => {
-    fetchDemoEpisode(selectedTarget);
-  }, [selectedTarget, fetchDemoEpisode]);
+    if (isReplayMode) {
+      fetchReplayEpisode(REPLAY_EP_ID);
+    } else {
+      fetchDemoEpisode(selectedTarget);
+    }
+  }, [isReplayMode, selectedTarget, fetchDemoEpisode, fetchReplayEpisode]);
 
   const totalSteps = episode ? episode.steps.length : 0;
 
@@ -106,11 +134,20 @@ function App() {
           OPTI<span className="title-accent">GAMI</span> RL
         </span>
         <div className="header-sep" />
-        <TargetSelector
-          targets={targets}
-          selected={selectedTarget}
-          onChange={name => setSelectedTarget(name)}
-        />
+        {isReplayMode ? (
+          <>
+            <span className="replay-badge">REPLAY — {REPLAY_EP_ID}</span>
+            <button className="back-to-grid-btn" onClick={() => window.history.back()}>
+              ← GRID
+            </button>
+          </>
+        ) : (
+          <TargetSelector
+            targets={targets}
+            selected={selectedTarget}
+            onChange={name => setSelectedTarget(name)}
+          />
+        )}
         <div className="header-sep" />
         <PlayerControls
           playing={playing}

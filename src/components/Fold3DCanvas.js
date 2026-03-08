@@ -54,8 +54,8 @@ function projectVertex(vertex, dim) {
   let y = vertex[1] - 0.5;
   let z = vertex[2] || 0;
 
-  const pitch = 1.04;
-  const yaw = -0.78;
+  const pitch = 0.62;
+  const yaw = -0.52;
 
   const cp = Math.cos(pitch);
   const sp = Math.sin(pitch);
